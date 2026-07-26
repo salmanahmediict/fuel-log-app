@@ -9,31 +9,22 @@ const MONGODB_URI = process.env.MONGODB_URI;
 const DB_NAME = process.env.MONGODB_DB || 'fuel_log';
 const COLLECTION = process.env.MONGODB_COLLECTION || 'entries';
 
-if (!MONGODB_URI) {
-  console.error('Missing MONGODB_URI. Copy .env.example to .env and fill in your MongoDB Atlas connection string.');
-  process.exit(1);
-}
-
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-let client;
-let entriesCollection;
+// Reuse MongoDB connection across serverless invocations
+let cachedClient = null;
 
-async function connectDB() {
-  // client = new MongoClient(MONGODB_URI);
-  client = new MongoClient(MONGODB_URI, {
-    tls: true,
-    tlsInsecure: false  // or true if you need to bypass cert validation
-  });
-  await client.connect();
-  const db = client.db(DB_NAME);
-  entriesCollection = db.collection(COLLECTION);
-  await entriesCollection.createIndex({ date: 1 });
-  await entriesCollection.createIndex({ vehicle: 1 });
-  console.log('Connected to MongoDB:', DB_NAME);
+async function getCollection() {
+  if (!cachedClient) {
+    cachedClient = new MongoClient(MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000,
+    });
+    await cachedClient.connect();
+  }
+  return cachedClient.db(DB_NAME).collection(COLLECTION);
 }
 
 function serialize(doc) {
@@ -48,26 +39,25 @@ function serialize(doc) {
   };
 }
 
-// GET all entries
+app.get('/api/health', (req, res) => res.json({ ok: true }));
+
 app.get('/api/entries', async (req, res) => {
   try {
-    const docs = await entriesCollection.find({}).sort({ date: 1 }).toArray();
+    const col = await getCollection();
+    const docs = await col.find({}).sort({ date: 1 }).toArray();
     res.json(docs.map(serialize));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to load entries' });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// POST a new entry
 app.post('/api/entries', async (req, res) => {
   try {
     const { vehicle, date, odometer, liters, cost, notes } = req.body;
-
     if (!vehicle || !date || liters == null || cost == null) {
-      return res.status(400).json({ error: 'vehicle, date, liters, and cost are required' });
+      return res.status(400).json({ error: 'vehicle, date, liters and cost are required' });
     }
-
     const doc = {
       vehicle: String(vehicle).trim(),
       date: String(date),
@@ -77,40 +67,37 @@ app.post('/api/entries', async (req, res) => {
       notes: notes ? String(notes).trim() : '',
       createdAt: new Date()
     };
-
-    const result = await entriesCollection.insertOne(doc);
+    const col = await getCollection();
+    const result = await col.insertOne(doc);
     res.status(201).json(serialize({ ...doc, _id: result.insertedId }));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to save entry' });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// DELETE an entry
 app.delete('/api/entries/:id', async (req, res) => {
   try {
     const id = req.params.id;
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: 'Invalid entry id' });
     }
-    const result = await entriesCollection.deleteOne({ _id: new ObjectId(id) });
+    const col = await getCollection();
+    const result = await col.deleteOne({ _id: new ObjectId(id) });
     if (result.deletedCount === 0) {
       return res.status(404).json({ error: 'Entry not found' });
     }
     res.json({ deleted: true });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to delete entry' });
+    res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true }));
+// For local run
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+}
 
-connectDB()
-  .then(() => {
-    app.listen(PORT, () => console.log(`Fuel log server running on port ${PORT}`));
-  })
-  .catch((err) => {
-    console.error('Failed to connect to MongoDB:', err.message);
-    process.exit(1);
-  });
+// For Vercel serverless
+module.exports = app;
