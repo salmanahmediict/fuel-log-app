@@ -104,7 +104,7 @@ app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 connectDB()
   .then(() => {
-    app.listen(PORT, () => console.log(`Fuel log server running on port ${PORT}`));
+    app.listen(PORT, '0.0.0.0', () => console.log(`Fuel log server running on port ${PORT}`));
   })
   .catch((err) => {
     console.error('Failed to connect to MongoDB:', err.message);
