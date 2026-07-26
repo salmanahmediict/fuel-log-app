@@ -23,7 +23,11 @@ let client;
 let entriesCollection;
 
 async function connectDB() {
-  client = new MongoClient(MONGODB_URI);
+  // client = new MongoClient(MONGODB_URI);
+  client = new MongoClient(MONGODB_URI, {
+    tls: true,
+    tlsInsecure: false  // or true if you need to bypass cert validation
+  });
   await client.connect();
   const db = client.db(DB_NAME);
   entriesCollection = db.collection(COLLECTION);
