@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fuel Log — Accommodation Fleet</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root{
+    --ink:#1c1b18;
+    --ink-soft:#5b594f;
+    --ink-faint:#8c8a7c;
+    --paper:#f6f3ec;
+    --paper-raised:#ffffff;
+    --line:#dcd8c8;
+    --rust:#b9512c;
+    --rust-dark:#8a3a1d;
+    --gauge:#3b6d4f;
+    --gauge-low:#b9512c;
+    --amber:#c98a1f;
+    --radius:6px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Courier New', ui-monospace, monospace;
+    line-height:1.5;
+  }
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 80px;}
+
+  header.app-header{
+    display:flex;justify-content:space-between;align-items:flex-end;
+    flex-wrap:wrap;gap:10px;
+    border-bottom:3px solid var(--ink);
+    padding-bottom:14px;margin-bottom:24px;
+  }
+  header.app-header h1{
+    font-size:26px;letter-spacing:0.5px;margin:0;text-transform:uppercase;
+  }
+  header.app-header .tag{
+    font-size:12px;color:var(--ink-soft);letter-spacing:1px;text-transform:uppercase;
+  }
+  header.app-header .stamp{
+    font-size:11px;color:var(--ink-faint);text-align:right;
+    border:1px solid var(--line);padding:6px 10px;border-radius:var(--radius);
+    white-space:nowrap;
+  }
+
+  .grid-stats{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:1px;background:var(--ink);border:1px solid var(--ink);
+    margin-bottom:28px;
+  }
+  .stat{
+    background:var(--paper-raised);padding:14px 16px;
+  }
+  .stat .label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--ink-faint);}
+  .stat .value{font-size:22px;font-weight:bold;margin-top:4px;}
+  .stat .value.warn{color:var(--rust-dark);}
+  .stat .value.good{color:var(--gauge);}
+
+  .panel{
+    background:var(--paper-raised);border:1px solid var(--line);
+    border-radius:var(--radius);padding:20px;margin-bottom:24px;
+  }
+  .panel h2{
+    font-size:13px;text-transform:uppercase;letter-spacing:1.5px;
+    margin:0 0 16px;color:var(--ink-soft);
+    border-bottom:1px dashed var(--line);padding-bottom:8px;
+  }
+
+  form#entryForm{
+    display:grid;grid-template-columns:repeat(6,1fr);gap:12px;align-items:end;
+  }
+  form#entryForm .field{display:flex;flex-direction:column;gap:4px;}
+  form#entryForm .field.wide{grid-column:span 2;}
+  form#entryForm label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--ink-faint);}
+  input,select,button{
+    font-family:inherit;font-size:13px;
+  }
+  input,select{
+    padding:8px;border:1px solid var(--line);border-radius:4px;
+    background:#fcfbf7;color:var(--ink);
+  }
+  input:focus,select:focus{outline:2px solid var(--rust);outline-offset:0;border-color:var(--rust);}
+  button{
+    cursor:pointer;border:none;border-radius:4px;padding:9px 14px;
+    background:var(--rust);color:#fff;font-weight:bold;letter-spacing:0.5px;
+    text-transform:uppercase;font-size:11px;
+  }
+  button:hover{background:var(--rust-dark);}
+  button.ghost{
+    background:transparent;color:var(--ink-soft);border:1px solid var(--line);
+  }
+  button.ghost:hover{border-color:var(--ink);color:var(--ink);}
+  button.danger-link{
+    background:none;border:none;color:var(--rust);text-decoration:underline;
+    text-transform:none;letter-spacing:0;font-weight:normal;padding:0;font-size:12px;
+  }
+
+  .controls-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px;flex-wrap:wrap;}
+  .controls-row select{min-width:160px;}
+
+  .table-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  table{width:100%;min-width:620px;border-collapse:collapse;font-size:12px;}
+  thead th{
+    text-align:left;text-transform:uppercase;font-size:10px;letter-spacing:0.5px;
+    color:var(--ink-faint);border-bottom:2px solid var(--ink);padding:8px 6px;
+  }
+  tbody td{padding:8px 6px;border-bottom:1px solid var(--line);}
+  tbody tr:hover{background:#f1eee4;}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .eff-good{color:var(--gauge);font-weight:bold;}
+  .eff-bad{color:var(--rust-dark);font-weight:bold;}
+
+  .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+
+  @media (max-width:760px){
+    .wrap{padding:20px 14px 60px;}
+    .panel{padding:16px;}
+    header.app-header h1{font-size:21px;}
+    .charts-grid{grid-template-columns:1fr;}
+    form#entryForm{grid-template-columns:repeat(2,1fr);}
+    form#entryForm .field.wide{grid-column:span 2;}
+    form#entryForm .field[style]{grid-column:span 2 !important;}
+    .controls-row{align-items:stretch;}
+    .controls-row select{width:100%;}
+    .chart-box{height:200px;}
+  }
+  @media (max-width:480px){
+    form#entryForm{grid-template-columns:1fr;}
+    form#entryForm .field,
+    form#entryForm .field.wide,
+    form#entryForm .field[style]{grid-column:1 / -1 !important;}
+    .grid-stats{grid-template-columns:repeat(2,1fr);}
+    .stat .value{font-size:18px;}
+    header.app-header{align-items:flex-start;}
+    header.app-header .stamp{width:100%;text-align:left;}
+  }
+  .chart-box{position:relative;height:230px;}
+
+  .empty{
+    text-align:center;padding:30px;color:var(--ink-faint);font-size:13px;
+  }
+  .legend-row{display:flex;gap:14px;font-size:11px;color:var(--ink-soft);margin-bottom:8px;flex-wrap:wrap;}
+  .legend-row span.dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px;}
+
+  .toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:#fff;padding:10px 18px;border-radius:4px;
+    font-size:12px;opacity:0;pointer-events:none;transition:opacity .25s;
+    letter-spacing:0.5px;
+  }
+  .toast.show{opacity:1;}
+
+  .vehicle-tag{
+    display:inline-block;background:#ece8da;border:1px solid var(--line);
+    padding:1px 8px;border-radius:10px;font-size:11px;color:var(--ink-soft);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="app-header">
+    <div>
+      <h1>Fuel Log</h1>
+      <div class="tag">Company accommodation — petrol consumption register</div>
+    </div>
+    <div class="stamp" id="syncStamp">Loading…</div>
+  </header>
+
+  <div class="grid-stats" id="statsGrid"></div>
+
+  <div class="panel">
+    <h2>New fill-up</h2>
+    <form id="entryForm">
+      <div class="field wide">
+        <label for="vehicle">Vehicle / Asset</label>
+        <input type="text" id="vehicle" placeholder="e.g. Generator, Toyota Hilux" required>
+      </div>
+      <div class="field">
+        <label for="date">Date</label>
+        <input type="date" id="date" required>
+      </div>
+      <div class="field">
+        <label for="odometer">Odometer (km)</label>
+        <input type="number" id="odometer" min="0" step="1" placeholder="optional">
+      </div>
+      <div class="field">
+        <label for="liters">Liters</label>
+        <input type="number" id="liters" min="0" step="0.01" required>
+      </div>
+      <div class="field">
+        <label for="cost">Total cost</label>
+        <input type="number" id="cost" min="0" step="0.01" required>
+      </div>
+      <div class="field wide" style="grid-column: span 6;">
+        <label for="notes">Notes (optional)</label>
+        <input type="text" id="notes" placeholder="station, driver, purpose...">
+      </div>
+      <div class="field" style="grid-column: span 2;">
+        <button type="submit">Add entry</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="panel">
+    <div class="controls-row">
+      <h2 style="border:none;margin:0;padding:0;">Log</h2>
+      <select id="vehicleFilter"><option value="all">All vehicles</option></select>
+    </div>
+    <div id="tableHolder"><div class="empty">No entries yet. Add your first fill-up above.</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Monthly summary</h2>
+    <div class="charts-grid">
+      <div>
+        <div class="legend-row"><span><span class="dot" style="background:#b9512c"></span>Spend ($)</span></div>
+        <div class="chart-box"><canvas id="spendChart" role="img" aria-label="Bar chart of monthly fuel spend">Monthly spend chart</canvas></div>
+      </div>
+      <div>
+        <div class="legend-row"><span><span class="dot" style="background:#3b6d4f"></span>Liters consumed</span></div>
+        <div class="chart-box"><canvas id="litersChart" role="img" aria-label="Bar chart of monthly liters consumed">Monthly liters chart</canvas></div>
+      </div>
+      <div style="grid-column: span 2;">
+        <div class="legend-row"><span><span class="dot" style="background:#c98a1f"></span>Efficiency (km per liter)</span></div>
+        <div class="chart-box"><canvas id="effChart" role="img" aria-label="Line chart of fuel efficiency in kilometers per liter over time">Efficiency trend chart</canvas></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API_BASE = '/api/entries';
+let entries = [];
+let spendChart, litersChart, effChart;
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+function fmtMoney(n){
+  return '$' + Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function fmtNum(n,d=1){
+  return Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+}
+
+async function loadEntries(){
+  try{
+    const res = await fetch(API_BASE);
+    if(!res.ok) throw new Error('Request failed');
+    entries = await res.json();
+  }catch(e){
+    entries = [];
+    document.getElementById('syncStamp').textContent = 'Could not reach server';
+    showToast('Could not load entries from server');
+  }
+}
+
+async function addEntryToServer(entry){
+  const res = await fetch(API_BASE, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(entry)
+  });
+  if(!res.ok) throw new Error('Save failed');
+  return res.json();
+}
+
+async function deleteEntryOnServer(id){
+  const res = await fetch(`${API_BASE}/${id}`, { method: 'DELETE' });
+  if(!res.ok) throw new Error('Delete failed');
+  return res.json();
+}
+
+function sortedEntries(){
+  return [...entries].sort((a,b)=> new Date(a.date) - new Date(b.date));
+}
+
+function computeEfficiencyMap(){
+  // efficiency requires odometer readings; compute km/L between consecutive fill-ups of the SAME vehicle
+  const byVehicle = {};
+  sortedEntries().forEach(e=>{
+    if(!byVehicle[e.vehicle]) byVehicle[e.vehicle] = [];
+    byVehicle[e.vehicle].push(e);
+  });
+  const effMap = {}; // id -> {kml, costPerKm, distance}
+  Object.values(byVehicle).forEach(list=>{
+    for(let i=1;i<list.length;i++){
+      const prev = list[i-1], cur = list[i];
+      if(prev.odometer != null && cur.odometer != null && cur.odometer > prev.odometer){
+        const dist = cur.odometer - prev.odometer;
+        const kml = dist / cur.liters;
+        effMap[cur.id] = {
+          kml: kml,
+          costPerKm: cur.cost / dist,
+          distance: dist
+        };
+      }
+    }
+  });
+  return effMap;
+}
+
+function renderStats(){
+  const grid = document.getElementById('statsGrid');
+  if(entries.length === 0){
+    grid.innerHTML = `
+      <div class="stat"><div class="label">Total spend</div><div class="value">$0.00</div></div>
+      <div class="stat"><div class="label">Total liters</div><div class="value">0.0</div></div>
+      <div class="stat"><div class="label">Avg efficiency</div><div class="value">—</div></div>
+      <div class="stat"><div class="label">Vehicles tracked</div><div class="value">0</div></div>
+    `;
+    return;
+  }
+  const totalSpend = entries.reduce((s,e)=>s+Number(e.cost),0);
+  const totalLiters = entries.reduce((s,e)=>s+Number(e.liters),0);
+  const effMap = computeEfficiencyMap();
+  const effVals = Object.values(effMap).map(v=>v.kml).filter(v=>isFinite(v) && v>0);
+  const avgEff = effVals.length ? effVals.reduce((a,b)=>a+b,0)/effVals.length : null;
+  const vehicleCount = new Set(entries.map(e=>e.vehicle)).size;
+
+  grid.innerHTML = `
+    <div class="stat"><div class="label">Total spend</div><div class="value">${fmtMoney(totalSpend)}</div></div>
+    <div class="stat"><div class="label">Total liters</div><div class="value">${fmtNum(totalLiters)} L</div></div>
+    <div class="stat"><div class="label">Avg efficiency</div><div class="value ${avgEff && avgEff < 8 ? 'warn':'good'}">${avgEff ? fmtNum(avgEff)+' km/L' : '—'}</div></div>
+    <div class="stat"><div class="label">Vehicles tracked</div><div class="value">${vehicleCount}</div></div>
+  `;
+}
+
+function renderVehicleFilter(){
+  const sel = document.getElementById('vehicleFilter');
+  const current = sel.value;
+  const vehicles = [...new Set(entries.map(e=>e.vehicle))].sort();
+  sel.innerHTML = '<option value="all">All vehicles</option>' +
+    vehicles.map(v=>`<option value="${v}">${v}</option>`).join('');
+  if(vehicles.includes(current)) sel.value = current;
+}
+
+function renderTable(){
+  const holder = document.getElementById('tableHolder');
+  const filter = document.getElementById('vehicleFilter').value;
+  const effMap = computeEfficiencyMap();
+  let list = sortedEntries().reverse();
+  if(filter !== 'all') list = list.filter(e=>e.vehicle === filter);
+
+  if(list.length === 0){
+    holder.innerHTML = '<div class="empty">No entries match.</div>';
+    return;
+  }
+
+  const rows = list.map(e=>{
+    const eff = effMap[e.id];
+    const effCell = eff ? `<span class="${eff.kml < 8 ? 'eff-bad':'eff-good'}">${fmtNum(eff.kml)} km/L</span>` : '—';
+    return `<tr>
+      <td>${e.date}</td>
+      <td><span class="vehicle-tag">${e.vehicle}</span></td>
+      <td class="num">${e.odometer != null ? Number(e.odometer).toLocaleString() : '—'}</td>
+      <td class="num">${fmtNum(e.liters,2)}</td>
+      <td class="num">${fmtMoney(e.cost)}</td>
+      <td class="num">${effCell}</td>
+      <td>${e.notes || ''}</td>
+      <td><button class="danger-link" onclick="deleteEntry('${e.id}')">Remove</button></td>
+    </tr>`;
+  }).join('');
+
+  holder.innerHTML = `
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th><th>Vehicle</th><th>Odometer</th><th>Liters</th>
+          <th>Cost</th><th>Efficiency</th><th>Notes</th><th></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    </div>
+  `;
+}
+
+function monthKey(dateStr){
+  const d = new Date(dateStr);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+function monthLabel(key){
+  const [y,m] = key.split('-');
+  const d = new Date(Number(y), Number(m)-1, 1);
+  return d.toLocaleDateString(undefined,{month:'short', year:'2-digit'});
+}
+
+function renderCharts(){
+  const sorted = sortedEntries();
+  const months = [...new Set(sorted.map(e=>monthKey(e.date)))].sort();
+  const spendByMonth = months.map(m => sorted.filter(e=>monthKey(e.date)===m).reduce((s,e)=>s+Number(e.cost),0));
+  const litersByMonth = months.map(m => sorted.filter(e=>monthKey(e.date)===m).reduce((s,e)=>s+Number(e.liters),0));
+  const labels = months.map(monthLabel);
+
+  const effMap = computeEfficiencyMap();
+  const effSeries = sorted.filter(e=>effMap[e.id]).map(e=>({x:e.date, y: Math.round(effMap[e.id].kml*10)/10}));
+
+  const muted = '#8c8a7c';
+  const grid = '#e1ddd0';
+
+  if(spendChart) spendChart.destroy();
+  if(litersChart) litersChart.destroy();
+  if(effChart) effChart.destroy();
+
+  spendChart = new Chart(document.getElementById('spendChart'), {
+    type:'bar',
+    data:{labels, datasets:[{data:spendByMonth, backgroundColor:'#b9512c', borderRadius:4, maxBarThickness:28}]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>fmtMoney(c.raw)}}},
+      scales:{
+        x:{grid:{display:false}, ticks:{color:muted, font:{size:10}}},
+        y:{grid:{color:grid}, ticks:{color:muted, font:{size:10}, callback:(v)=>'$'+v}}
+      }
+    }
+  });
+
+  litersChart = new Chart(document.getElementById('litersChart'), {
+    type:'bar',
+    data:{labels, datasets:[{data:litersByMonth, backgroundColor:'#3b6d4f', borderRadius:4, maxBarThickness:28}]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>fmtNum(c.raw,1)+' L'}}},
+      scales:{
+        x:{grid:{display:false}, ticks:{color:muted, font:{size:10}}},
+        y:{grid:{color:grid}, ticks:{color:muted, font:{size:10}}}
+      }
+    }
+  });
+
+  effChart = new Chart(document.getElementById('effChart'), {
+    type:'line',
+    data:{datasets:[{
+      data: effSeries,
+      borderColor:'#c98a1f', backgroundColor:'rgba(201,138,31,0.1)',
+      borderWidth:2, pointRadius:4, pointBackgroundColor:'#c98a1f', fill:true, tension:0.25
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=>fmtNum(c.raw,1)+' km/L'}}},
+      scales:{
+        x:{type:'time' in Chart ? 'time' : 'category', time:{unit:'month'}, grid:{display:false}, ticks:{color:muted, font:{size:10}}},
+        y:{grid:{color:grid}, ticks:{color:muted, font:{size:10}}}
+      }
+    }
+  });
+}
+
+function renderAll(){
+  renderStats();
+  renderVehicleFilter();
+  renderTable();
+  renderCharts();
+}
+
+async function deleteEntry(id){
+  try{
+    await deleteEntryOnServer(id);
+    entries = entries.filter(e=>e.id !== id);
+    renderAll();
+    showToast('Entry removed');
+  }catch(e){
+    showToast('Could not delete entry');
+  }
+}
+
+document.getElementById('entryForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const vehicle = document.getElementById('vehicle').value.trim();
+  const date = document.getElementById('date').value;
+  const odometerVal = document.getElementById('odometer').value;
+  const liters = document.getElementById('liters').value;
+  const cost = document.getElementById('cost').value;
+  const notes = document.getElementById('notes').value.trim();
+
+  if(!vehicle || !date || !liters || !cost) return;
+
+  const payload = {
+    vehicle, date,
+    odometer: odometerVal === '' ? null : Number(odometerVal),
+    liters: Number(liters),
+    cost: Number(cost),
+    notes
+  };
+
+  try{
+    const saved = await addEntryToServer(payload);
+    entries.push(saved);
+    renderAll();
+    e.target.reset();
+    document.getElementById('date').valueAsDate = new Date();
+    showToast('Entry added');
+  }catch(err){
+    showToast('Could not save entry — check server connection');
+  }
+});
+
+document.getElementById('vehicleFilter').addEventListener('change', renderTable);
+
+(async function init(){
+  document.getElementById('date').valueAsDate = new Date();
+  await loadEntries();
+  renderAll();
+  if(document.getElementById('syncStamp').textContent !== 'Could not reach server'){
+    document.getElementById('syncStamp').textContent = 'Connected · ' + entries.length + ' entries';
+  }
+})();
+</script>
+</body>
+</html>
